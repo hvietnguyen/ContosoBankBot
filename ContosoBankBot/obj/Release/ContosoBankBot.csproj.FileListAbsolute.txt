@@ -37,3 +37,12 @@ C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBank
 C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\obj\Release\ContosoBankBot.csprojResolveAssemblyReference.cache
 C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\obj\Release\Bot Application1.dll
 C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\obj\Release\Bot Application1.pdb
+C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\bin\Microsoft.WindowsAzure.Mobile.dll
+C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\bin\Microsoft.WindowsAzure.Mobile.Ext.dll
+C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\bin\System.Net.Http.Extensions.dll
+C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\bin\System.Net.Http.Primitives.dll
+C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\bin\Microsoft.WindowsAzure.Mobile.xml
+C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\bin\Microsoft.WindowsAzure.Mobile.Ext.xml
+C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\bin\System.Net.Http.Extensions.xml
+C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\bin\System.Net.Http.Primitives.xml
+C:\Users\vietnguyen\Documents\MSA\MSA 2016\Assessment\ContosoBankBot\ContosoBankBot\obj\Release\ContosoBankBot.csproj.App.config

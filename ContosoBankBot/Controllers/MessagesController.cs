@@ -7,6 +7,8 @@ using System.Web.Http;
 using System.Web.Http.Description;
 using Microsoft.Bot.Connector;
 using Newtonsoft.Json;
+using ContosoBankBot.Model;
+using System.Collections.Generic;
 
 namespace ContosoBankBot
 {
@@ -24,11 +26,15 @@ namespace ContosoBankBot
                 ConnectorClient connector = new ConnectorClient(new Uri(activity.ServiceUrl));
                 // calculate something for us to return
                 //int length = (activity.Text ?? string.Empty).Length;
-                string title = "Contoso Bank service!";
+                List<User> users = await AzureManager.AzureManagerInstance.GetUsers();
+                User user = users.First();
+                string username = user.Username;
+                string password = user.Password;
+
 
                 // return our reply to the user
                 //Activity reply = activity.CreateReply($"You sent {activity.Text} which was {length} characters");
-                Activity reply = activity.CreateReply($"Welcome to {title} !");
+                Activity reply = activity.CreateReply($"Hello {username}, the password is {password}");
                 await connector.Conversations.ReplyToActivityAsync(reply);
             }
             else
