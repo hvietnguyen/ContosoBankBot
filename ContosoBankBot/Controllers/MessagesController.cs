@@ -22,16 +22,10 @@ namespace ContosoBankBot
         /// POST: api/Messages
         /// Receive a message from a user and reply to it
         /// </summary>
-        public static BotData userData;
-        public static string username="", password="";
-        public static string userMessage;
-        public static bool logoutProcess = false;
-        public static List<User> users;
-        public static string accName="", accValue="";
-        public static int count=0;
-
-        static Account account = null;
-
+        public BotData userData;
+        public string userMessage;
+        
+    
         [ResponseType(typeof(void))]
         public virtual async Task<HttpResponseMessage> Post([FromBody]Activity activity)
         {
@@ -40,56 +34,52 @@ namespace ContosoBankBot
             activity.Recipient.Name = "Contoso Bank Bot";
 
             userMessage = activity.Text;
-            string endOutput = $"Welcome {username} To Contoso Bank Bot Service";
+            string endOutput = $"Welcome To Contoso Bank Bot Service";
 
             StateClient stateClient = activity.GetStateClient();
             userData = await stateClient.BotState.GetUserDataAsync(activity.ChannelId, activity.From.Id);
+            User user = (userData.GetProperty<User>("user") != null) ? userData.GetProperty<User>("user") : null;
 
             if (activity.Type == ActivityTypes.Message)
             {
-                 if (userData.GetProperty<bool>("isEnterPass"))
-                {
-                    password = userMessage;
-                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                    userData.SetProperty<bool>("isEnterPass", false); // Set property isEnterPass is false;
-                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                }
-
-                // if property isEnterUser is true
-                if (userData.GetProperty<bool>("isEnterUser"))
-                {
-                    username = userMessage;
-
-                    endOutput = "Enter Your Password";
-
-                    userData.SetProperty<bool>("isEnterUser", false); // Set property isEnterUser is false;
-                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                    userData.SetProperty<bool>("isEnterPass", true); // Set property isEnterPass is true;
-                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                }
-
                 if (userData.GetProperty<bool>("isLoginSuccessful"))
                 {
-                    activity.From.Name = username;
+                    activity.From.Name = userData.GetProperty<string>("username");
                     
                     // Add new account
                     if (userData.GetProperty<bool>("isAddAccount"))
                     {
+                        int count = userData.GetProperty<int>("count");
                         if (count == 1)
                         {
-                            accName = userMessage;
+                            string[] pairs = Regex.Split(userMessage, "\\s+");
+                            if (pairs.Length > 1)
+                            {
+                                userMessage = "";
+                                foreach (string str in pairs)
+                                {
+                                    userMessage += str;
+                                }
+                            }
+
+                            userData.SetProperty<string>("accName", userMessage);
+                            await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
                             endOutput = "Enter Deposit Value";
-                            count++;
+                         
+                            userData.SetProperty<int>("count", 2);
+                            await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
                             Activity quickreply = activity.CreateReply($"{endOutput}");
                             await connector.Conversations.ReplyToActivityAsync(quickreply);
-                            var res = Request.CreateResponse(HttpStatusCode.OK);
-                            return res;
+                            return Request.CreateResponse(HttpStatusCode.OK);
                         }
                         else if(count == 2)
                         {
                             bool flag = false;
-                            accValue = userMessage;
-                            List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
+                            string accValue = userMessage;
+                            string accName = userData.GetProperty<string>("accName");
+                            List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(user.ID);
                             foreach(Account account in accounts)
                             {
                                 if (account.Name.Equals(accName)) flag = true; 
@@ -97,57 +87,83 @@ namespace ContosoBankBot
 
                             if (!flag)
                             {
-                                if (!Dialog.DialogProcess)
+                                if (userData.GetProperty<bool>("process"))
                                 {
-                                    account = new Account()
+                                    Account account = new Account()
                                     {
                                         Name = accName,
                                         Type = "Saving",
                                         Value = Convert.ToDecimal(accValue),
-                                        UserID = users.First().ID
+                                        UserID = user.ID
                                     };
+
+                                    userData.SetProperty<Account>("account", account);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<bool>("process", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                }
+
+                                if (userData.GetProperty<bool>("confirm"))
+                                {
+                                    await Conversation.SendAsync(activity, () => new EchoDialog());
+                                }
+                                    
+                                string result = userMessage;
+
+                                if (result.ToLower().Equals("yes") || result.ToLower().Equals("1"))
+                                {
+                                    
+
+                                    userData.SetProperty<int>("count", 0);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    await AzureManager.AzureManagerInstance.AddCount(userData.GetProperty<Account>("account"));
+                                    List<Account> list = await AzureManager.AzureManagerInstance.GetAccounts(user.ID);
+                                    await connector.Conversations.SendToConversationAsync(DisplayAccount(list, activity));
+
+                                    userData.SetProperty<bool>("confirm", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<bool>("isAddAccount", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    return Request.CreateResponse(HttpStatusCode.OK);
+                                }
+                                else if(result.ToLower().Equals("no") || result.ToLower().Equals("2"))
+                                {
+                                    userData.SetProperty<bool>("isAddAccount", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<bool>("confirm", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    endOutput = $"Process is cancelled";
+                                    Activity rep = activity.CreateReply($"{endOutput}");
+                                    await connector.Conversations.ReplyToActivityAsync(rep);
+                                    return Request.CreateResponse(HttpStatusCode.OK);
                                 }
                                 
-                                Dialog.DialogMessage = "Add New Account";
-                                await Conversation.SendAsync(activity, () => new Dialog());
-                                if (Dialog.Result == 1)
-                                {
-                                    count = 0;
-                                    await AzureManager.AzureManagerInstance.AddCount(account);
-                                    List<Account> list = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
-                                    await connector.Conversations.SendToConversationAsync(DisplayAccount(list, activity));
-                                    userData.SetProperty<bool>("isAddAccount", false);
-                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                                    var res = Request.CreateResponse(HttpStatusCode.OK);
-                                    return res;
-                                }
-                                else if (Dialog.Result == -1)
-                                {
-                                    count = 0;
-                                    userData.SetProperty<bool>("isAddAccount", false);
-                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                                    var res = Request.CreateResponse(HttpStatusCode.OK);
-                                    return res;
-                                }
-                                else
-                                {
-
-                                    var res = Request.CreateResponse(HttpStatusCode.OK);
-                                    return res;
-                                }
                             }
                             else
                             {
-                                count = 0;
-                                List<Account> list = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
+                                userData.SetProperty<int>("count", 0);
+                                await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                List<Account> list = await AzureManager.AzureManagerInstance.GetAccounts(user.ID);
                                 await connector.Conversations.SendToConversationAsync(DisplayAccount(list, activity));
+
                                 userData.SetProperty<bool>("isAddAccount", false);
                                 await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                                endOutput = "The Account Name is Existed";
+
+                                userData.SetProperty<bool>("confirm", false);
+                                await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                endOutput = $"{accName} Is Existed!";
                                 Activity rep = activity.CreateReply($"{endOutput}");
                                 await connector.Conversations.ReplyToActivityAsync(rep);
-                                var res = Request.CreateResponse(HttpStatusCode.OK);
-                                return res;
+                                return Request.CreateResponse(HttpStatusCode.OK);
                             }
                         }
                     }
@@ -155,70 +171,112 @@ namespace ContosoBankBot
                     // Update an account
                     if (userData.GetProperty<bool>("isUpdateAccount"))
                     {
+                        int count = userData.GetProperty<int>("count");
                         if (count == 1)
                         {
                             try
                             {
-                                if (!Dialog.DialogProcess)
+                                if (userData.GetProperty<bool>("process"))
                                 {
                                     string[] pairs = Regex.Split(userMessage, "\\s+");
-                                    accName = pairs[1];
-                                    accValue = pairs[2];
-                                }             
-                                Dialog.DialogMessage = $"Update Account {accName}";
-                                await Conversation.SendAsync(activity, () => new Dialog());
-                                if(Dialog.Result == 1)
+
+                                    userData.SetProperty<string>("accName", pairs[1]);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<string>("accValue", pairs[2]);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<bool>("process", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                                }
+
+                                string name = userData.GetProperty<string>("accName");
+                                List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(user.ID);
+                                Account acc = (accounts.Where(a => a.Name == name).Count() > 0) ? accounts.Where(a => a.Name == name).First() : null;
+
+                                if (acc != null)
                                 {
-                                    count = 0;
-                                    List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
-                                    Account acc = accounts.Where(a => a.Name == accName).First();
-                                    if(acc != null)
+                                    if (userData.GetProperty<bool>("confirm"))
                                     {
-                                        acc.Value = Convert.ToDecimal(accValue);
+                                        await Conversation.SendAsync(activity, () => new EchoDialog());
+                                    }
+
+                                    string result = userMessage;
+
+                                    if (result.ToLower().Equals("yes") || result.ToLower().Equals("1"))
+                                    {
+                                        userData.SetProperty<int>("count", 0);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                        acc.Value = Convert.ToDecimal(userData.GetProperty<string>("accValue"));
                                         await AzureManager.AzureManagerInstance.UpdateCount(acc);
+
+                                        await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
+
+                                        userData.SetProperty<bool>("isUpdateAccount", false);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                        userData.SetProperty<bool>("confirm", false);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                        return Request.CreateResponse(HttpStatusCode.OK);
+                                    }
+                                    else if (result.ToLower().Equals("no") || result.ToLower().Equals("2"))
+                                    {
+                                        userData.SetProperty<int>("count", 0);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
                                         await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
                                         userData.SetProperty<bool>("isUpdateAccount", false);
                                         await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                                        var res = Request.CreateResponse(HttpStatusCode.OK);
-                                        return res;
-                                    }
-                                    else
-                                    {
-                                        endOutput = $"There is no account name: {accName}";
+
+                                        userData.SetProperty<bool>("confirm", false);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                        endOutput = $"Process is cancelled";
                                         Activity rep = activity.CreateReply($"{endOutput}");
                                         await connector.Conversations.ReplyToActivityAsync(rep);
-                                        var res = Request.CreateResponse(HttpStatusCode.OK);
-                                        return res;
+
+                                        return Request.CreateResponse(HttpStatusCode.OK);
                                     }
-                                    
-                                }
-                                else if (Dialog.Result == -1)
-                                {
-                                    count = 0;
-                                    List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
-                                    await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
-                                    userData.SetProperty<bool>("isUpdateAccount", false);
-                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                                    var res = Request.CreateResponse(HttpStatusCode.OK);
-                                    return res;
                                 }
                                 else
                                 {
-                                    var res = Request.CreateResponse(HttpStatusCode.OK);
-                                    return res;
+                                    userData.SetProperty<int>("count", 0);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
+
+                                    userData.SetProperty<bool>("isUpdateAccount", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<bool>("confirm", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<bool>("process", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    endOutput = $"Account {name} is not existed!";
+                                    Activity rep = activity.CreateReply($"{endOutput}");
+                                    await connector.Conversations.ReplyToActivityAsync(rep);
+                                    return Request.CreateResponse(HttpStatusCode.OK);
                                 }
-                                
                             }
                             catch (Exception e)
                             {
-                                count = 0;
-                                userData.SetProperty<bool>("isUpdateAccount", false);
+                                userData.SetProperty<int>("count", 0);
                                 await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                                endOutput = "Syntax is not correct";
+
+                                userData.SetProperty<bool>("confirm", false);
+                                await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                userData.SetProperty<bool>("process", false);
+                                await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                endOutput = $"{userMessage} - Syntax is not correct";
                                 Activity rep = activity.CreateReply($"{endOutput}");
                                 await connector.Conversations.ReplyToActivityAsync(rep);
-                                var res = Request.CreateResponse(HttpStatusCode.OK);
-                                return res;
+                                return Request.CreateResponse(HttpStatusCode.OK);
                             }
 
                         }
@@ -227,182 +285,267 @@ namespace ContosoBankBot
                     // Delete an account
                     if (userData.GetProperty<bool>("isDeleteAccount"))
                     {
+                        int count = userData.GetProperty<int>("count");
                         if(count == 1)
                         {
                             try
                             {
-                                if (!Dialog.DialogProcess)
+                                if (userData.GetProperty<bool>("process"))
                                 {
                                     string[] pairs = Regex.Split(userMessage, "\\s+");
-                                    accName = pairs[1];
+                                                                
+                                    userData.SetProperty<string>("accName", pairs[1]);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<bool>("process", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
                                 }
-                                Dialog.DialogMessage = $"Delete Account {accName}";
-                                await Conversation.SendAsync(activity, () => new Dialog());
-                                if (Dialog.Result == 1)
+
+                                string name = userData.GetProperty<string>("accName");
+                                List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(user.ID);
+                                Account acc = (accounts.Where(a => a.Name == name).Count() > 0) ? accounts.Where(a => a.Name == name).First() : null;
+
+                                if (acc != null)
                                 {
-                                    count = 0;
-                                    List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
-                                    Account acc = accounts.Where(a => a.Name == accName).First();
-                                    if (acc != null)
+                                    if (userData.GetProperty<bool>("confirm"))
                                     {
+                                        await Conversation.SendAsync(activity, () => new EchoDialog());
+                                    }
+
+                                    string result = userMessage;
+
+                                    if (result.ToLower().Equals("yes") || result.ToLower().Equals("1"))
+                                    {
+                                        userData.SetProperty<int>("count", 0);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
                                         await AzureManager.AzureManagerInstance.DeleteCount(acc);
                                         accounts.Remove(acc);
                                         await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
                                         userData.SetProperty<bool>("isDeleteAccount", false);
                                         await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                                        var res = Request.CreateResponse(HttpStatusCode.OK);
-                                        return res;
+
+                                        userData.SetProperty<bool>("confirm", false);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                        return Request.CreateResponse(HttpStatusCode.OK);
                                     }
-                                    else
+                                    else if (result.ToLower().Equals("no") || result.ToLower().Equals("2"))
                                     {
-                                        endOutput = $"There is no account name: {accName}";
+                                        userData.SetProperty<int>("count", 0);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                        await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
+                                        userData.SetProperty<bool>("isDeleteAccount", false);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                        userData.SetProperty<bool>("confirm", false);
+                                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                        endOutput = $"Process is cancelled";
                                         Activity rep = activity.CreateReply($"{endOutput}");
                                         await connector.Conversations.ReplyToActivityAsync(rep);
-                                        var res = Request.CreateResponse(HttpStatusCode.OK);
-                                        return res;
+
+                                        return Request.CreateResponse(HttpStatusCode.OK);
                                     }
 
-                                }
-                                else if (Dialog.Result == -1)
-                                {
-                                    count = 0;
-                                    List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
-                                    await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
-                                    userData.SetProperty<bool>("isDeleteAccount", false);
-                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                                    var res = Request.CreateResponse(HttpStatusCode.OK);
-                                    return res;
+
                                 }
                                 else
                                 {
-                                    var res = Request.CreateResponse(HttpStatusCode.OK);
-                                    return res;
-                                }
+                                    userData.SetProperty<int>("count", 0);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
 
+                                    await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
+                                    userData.SetProperty<bool>("isDeleteAccount", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<bool>("confirm", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    userData.SetProperty<bool>("process", false);
+                                    await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                    endOutput = $"Account {name} Is Not Existing!";
+                                    Activity rep = activity.CreateReply($"{endOutput}");
+                                    await connector.Conversations.ReplyToActivityAsync(rep);
+                                    return Request.CreateResponse(HttpStatusCode.OK);
+                                }
                             }
                             catch (Exception e)
                             {
-                                count = 0;
-                                userData.SetProperty<bool>("isDeleteAccount", false);
+                                userData.SetProperty<int>("count", 0);
                                 await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                                endOutput = "Syntax is not correct";
+
+                                userData.SetProperty<bool>("confirm", false);
+                                await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                userData.SetProperty<bool>("process", false);
+                                await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                                endOutput = $"{userMessage} - Syntax is not correct";
                                 Activity rep = activity.CreateReply($"{endOutput}");
                                 await connector.Conversations.ReplyToActivityAsync(rep);
-                                var res = Request.CreateResponse(HttpStatusCode.OK);
-                                return res;
+                                return Request.CreateResponse(HttpStatusCode.OK);
                             }
                         }
                     }
 
                     // Logout
-                    if (userMessage.ToLower().Contains("logout") || userMessage.ToLower().Contains("6")) logoutProcess = true;
-                    else if (userMessage.ToLower().Contains("menu"))
+                    if (userMessage.ToLower().Equals("logout") || userMessage.ToLower().Equals("6"))
+                    {
+                        userData.SetProperty<bool>("logoutProcess", true);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                    }
+                    else if (userMessage.ToLower().Equals("menu"))
                     {
                         await connector.Conversations.SendToConversationAsync(DisplayMenu(activity));
-                        var res = Request.CreateResponse(HttpStatusCode.OK);
-                        return res;
+                        return Request.CreateResponse(HttpStatusCode.OK);
                     }
-                    else if (userMessage.ToLower().Contains("view account") || userMessage.ToLower().Contains("1"))
+                    else if (userMessage.ToLower().Equals("view account") || userMessage.ToLower().Equals("1"))
                     {
-                        if (users != null && users.Count > 0)
+                        if (user != null)
                         {
-                            List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
+                            List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(user.ID);
                             await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
-                            var res = Request.CreateResponse(HttpStatusCode.OK);
-                            return res;
+                            return Request.CreateResponse(HttpStatusCode.OK);
                         }
                     }
-                    else if (userMessage.ToLower().Contains("add account") || userMessage.ToLower().Contains("2"))
+                    else if (userMessage.ToLower().Equals("add account") || userMessage.ToLower().Equals("2"))
                     {
                         userData.SetProperty<bool>("isAddAccount", true);
                         await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
                         endOutput = "Enter Account Name";
-                        count++;
+
+                        userData.SetProperty<int>("count", 1);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                        userData.SetProperty<bool>("confirm", true);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                        userData.SetProperty<bool>("process", true);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
                         Activity rep = activity.CreateReply($"{endOutput}");
                         await connector.Conversations.ReplyToActivityAsync(rep);
-                        var res = Request.CreateResponse(HttpStatusCode.OK);
-                        return res;
+                        return Request.CreateResponse(HttpStatusCode.OK);
                     }
-                    else if(userMessage.ToLower().Contains("update account") || userMessage.ToLower().Contains("3"))
+                    else if (userMessage.ToLower().Equals("update account") || userMessage.ToLower().Equals("3"))
                     {
                         userData.SetProperty<bool>("isUpdateAccount", true);
                         await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                        List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
+                        List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(user.ID);
                         await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
                         endOutput = "Update <AccountName> <Value>";
-                        count++;
+                        
+                        userData.SetProperty<int>("count", 1);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                        userData.SetProperty<bool>("confirm", true);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                        userData.SetProperty<bool>("process", true);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
                         Activity rep = activity.CreateReply($"{endOutput}");
                         await connector.Conversations.ReplyToActivityAsync(rep);
-                        var res = Request.CreateResponse(HttpStatusCode.OK);
-                        return res;
+                        return Request.CreateResponse(HttpStatusCode.OK);
                     }
-                    else if (userMessage.ToLower().Contains("delete account") || userMessage.ToLower().Contains("4"))
+                    else if (userMessage.ToLower().Equals("delete account") || userMessage.ToLower().Equals("4"))
                     {
                         userData.SetProperty<bool>("isDeleteAccount", true);
                         await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                        List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(users.First().ID);
+                        List<Account> accounts = await AzureManager.AzureManagerInstance.GetAccounts(user.ID);
                         await connector.Conversations.SendToConversationAsync(DisplayAccount(accounts, activity));
+
+                        userData.SetProperty<bool>("confirm", true);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                        userData.SetProperty<bool>("process", true);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                        userData.SetProperty<int>("count", 1);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
                         endOutput = "Delete <AccountName>";
-                        count++;
                         Activity rep = activity.CreateReply($"{endOutput}");
                         await connector.Conversations.ReplyToActivityAsync(rep);
-                        var res = Request.CreateResponse(HttpStatusCode.OK);
-                        return res;
+                        return Request.CreateResponse(HttpStatusCode.OK);
                     }
-                    else if (userMessage.ToLower().Contains("currency rate") || userMessage.ToLower().Contains("5"))
+                    else if (userMessage.ToLower().Equals("currency rate") || userMessage.ToLower().Equals("5"))
                     {
                         HttpClient client = new HttpClient();
                         string result = await client.GetStringAsync(new Uri("http://api.fixer.io/latest?base=NZD"));
                         CurrencyRate currencyRate = JsonConvert.DeserializeObject<CurrencyRate>(result);
-                        await connector.Conversations.SendToConversationAsync(DisplayCurrencyRate(currencyRate,activity));
-                        var res = Request.CreateResponse(HttpStatusCode.OK);
-                        return res;
+                        await connector.Conversations.SendToConversationAsync(DisplayCurrencyRate(currencyRate, activity));
+                        return Request.CreateResponse(HttpStatusCode.OK);
                     }
 
                     // Logout process
-                    if (logoutProcess)
+                    if (userData.GetProperty<bool>("logoutProcess"))
                     {
-                        Dialog.DialogMessage = "Logout";
-                        await Conversation.SendAsync(activity, () => new Dialog());
-                        if (Dialog.Result == 1)
-                        {
-                            username = "";
-                            password = "";
-                            userData.SetProperty<string>("username", username);
-                            await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                            userData.SetProperty<string>("password", password);
-                            await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                            userData.SetProperty<bool>("isLoginSuccessful", false);
-                            await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
-                            var res = Request.CreateResponse(HttpStatusCode.OK);
-                            return res;
-                        }
-                        else
-                        {
-                            var res = Request.CreateResponse(HttpStatusCode.OK);
-                            return res;
-                        }
+                        string username = "";
+                        string password = "";
+                        userData.SetProperty<string>("username", username);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                        userData.SetProperty<string>("password", password);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                        userData.SetProperty<bool>("isLoginSuccessful", false);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                        endOutput = $"Logout successful! See You Again";
+                        Activity rep = activity.CreateReply($"{endOutput}");
+                        await connector.Conversations.ReplyToActivityAsync(rep);
+                        return Request.CreateResponse(HttpStatusCode.OK);
                     }
                 }
                 else
                 {
-                    if (userMessage.ToLower().Contains("login"))
+                    if (userMessage.ToLower().Equals("login"))
                     {
                         endOutput = "Enter Your Username";
                         userData.SetProperty<bool>("isEnterUser", true); // set property isEnterUser is true
                         await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                        Activity rep = activity.CreateReply($"{endOutput}");
+                        await connector.Conversations.ReplyToActivityAsync(rep);
+                        return Request.CreateResponse(HttpStatusCode.OK);
                     }
 
-                    if (username != "" && password != "")
+                    if (userData.GetProperty<bool>("isEnterPass"))
                     {
-                        users = await AzureManager.AzureManagerInstance.GetUsers(username, password);
+                        userData.SetProperty<string>("password", userMessage);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                        userData.SetProperty<bool>("isEnterPass", false);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                    }
+
+                    if (userData.GetProperty<bool>("isEnterUser"))
+                    {
+                        userData.SetProperty<string>("username", userMessage);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
+                        endOutput = "Enter Your Password";
+
+                        userData.SetProperty<bool>("isEnterUser", false);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                        userData.SetProperty<bool>("isEnterPass", true);
+                        await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                    }
+
+                    string username = userData.GetProperty<string>("username");
+                    string password = userData.GetProperty<string>("password");
+                    if (username != null && password != null && userMessage != "" && password != "")
+                    {
+                        List<User> users = await AzureManager.AzureManagerInstance.GetUsers(username, password);
 
                         if (users.Count > 0)
                         {
+                            userData.SetProperty<User>("user", users.First());
+                            await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+
                             endOutput = $"Login Successfull! Welcome {username} To Contoso Bank Bot Service";
-                            activity.From.Name = username;
                             userData.SetProperty<string>("username", username);
                             await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                            activity.From.Name = userData.GetProperty<string>("username");
                             userData.SetProperty<string>("password", password);
                             await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
                             userData.SetProperty<bool>("isLoginSuccessful", true);
@@ -413,24 +556,31 @@ namespace ContosoBankBot
                             endOutput = "Login Fail!";
                             username = "";
                             password = "";
+                            userData.SetProperty<string>("username", username);
+                            await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
+                            activity.From.Name = userData.GetProperty<string>("username");
+                            userData.SetProperty<string>("password", password);
+                            await stateClient.BotState.SetUserDataAsync(activity.ChannelId, activity.From.Id, userData);
                         }
 
                         activity.Recipient.Name = "Contoso Bank Bot";  
                     }
                 }
-                // return our reply to the user
-                //Activity reply = activity.CreateReply($"You sent {activity.Text} which was {length} characters");
-                Activity reply = activity.CreateReply($"{endOutput}");
-                await connector.Conversations.ReplyToActivityAsync(reply);
-                if(userData.GetProperty<bool>("isLoginSuccessful") && !logoutProcess)
-                    await connector.Conversations.SendToConversationAsync(DisplayMenu(activity));
+
+                if (!userData.GetProperty<bool>("confirm"))
+                {
+                    Activity reply = activity.CreateReply($"{endOutput}");
+                    await connector.Conversations.ReplyToActivityAsync(reply);
+                    if (userData.GetProperty<bool>("isLoginSuccessful"))
+                        await connector.Conversations.SendToConversationAsync(DisplayMenu(activity));
+                }
+                
             }
             else
             {
                 HandleSystemMessage(activity);
             }
-            var response = Request.CreateResponse(HttpStatusCode.OK);
-            return response;
+            return Request.CreateResponse(HttpStatusCode.OK);
         }
 
         private Activity DisplayCurrencyRate(CurrencyRate currencyRate, Activity activity)
@@ -585,14 +735,9 @@ namespace ContosoBankBot
         }
     }
 
-    
     [Serializable]
-    public class Dialog : IDialog<object>
+    public class EchoDialog : IDialog<object>
     {
-        private static int flag;
-        public static int Result { get { return flag;} }
-        public static bool DialogProcess { get; set; }
-        public static string DialogMessage { get; set; }
         public async Task StartAsync(IDialogContext context)
         {
             context.Wait(MessageReceivedAsync);
@@ -600,33 +745,25 @@ namespace ContosoBankBot
         public virtual async Task MessageReceivedAsync(IDialogContext context, IAwaitable<IMessageActivity> argument)
         {
             var message = await argument;
-            flag = 0;
-            DialogProcess = true;
             PromptDialog.Confirm(
-                    context,
-                    AfterAsync,
-                    "Do You Want To "+DialogMessage+"?",
-                    "Didn't get that!",
-                    promptStyle: PromptStyle.PerLine);
+                     context,
+                     AfterAsync,
+                     "Are you sure you want to process?",
+                     "Didn't get that!",
+                     promptStyle: PromptStyle.PerLine);
         }
         public async Task AfterAsync(IDialogContext context, IAwaitable<bool> argument)
         {
             var confirm = await argument;
             if (confirm)
             {
-                flag = 1;
-                string endOutput = DialogMessage+" Successfully!";
-                await context.PostAsync($"{endOutput}");
-                MessagesController.logoutProcess = false;
+                await context.PostAsync("Process done!");
             }
             else
             {
-                flag = -1;
-                await context.PostAsync("Cancel Process");
-                MessagesController.logoutProcess = false;
+                //await context.PostAsync("Process Cancelled!");
             }
             context.Wait(MessageReceivedAsync);
-            DialogProcess = false;
         }
     }
 }
